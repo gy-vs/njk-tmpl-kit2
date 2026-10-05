@@ -521,6 +521,109 @@
               'empty');
           }
         });
+        it('should filter the loop with an inline if condition', function() {
+          equal(
+            '{% ' + block + ' i in [1, 2, 3, 4] if i % 2 == 0 %}' +
+            '{{ loop.index }}:{{ i }} {% ' + end + ' %}',
+            '1:2 2:4 ');
+        });
+        it('should use context variables in the filter condition', function() {
+          equal(
+            '{% ' + block + ' u in users if u.active and u.role != hidden %}' +
+            '{{ u.name }} {% ' + end + ' %}',
+            {
+              users: [
+                { name: 'a', active: true, role: 'user' },
+                { name: 'b', active: false, role: 'user' },
+                { name: 'c', active: true, role: 'admin' }
+              ],
+              hidden: 'admin'
+            },
+            'a ');
+        });
+        it('should compute loop.index after filtering', function() {
+          equal('{% ' + block + ' i in [1, 2, 3, 4, 5] if i > 2 %}' +
+            '{{ loop.index }} {% ' + end + ' %}',
+          '1 2 3 ');
+        });
+        it('should compute loop.index0 after filtering', function() {
+          equal('{% ' + block + ' i in [1, 2, 3, 4, 5] if i > 2 %}' +
+            '{{ loop.index0 }} {% ' + end + ' %}',
+          '0 1 2 ');
+        });
+        it('should compute loop.revindex after filtering', function() {
+          equal('{% ' + block + ' i in [7, 3, 6] if i > 4 %}' +
+            '{{ i }}:{{ loop.revindex }} {% ' + end + ' %}',
+          '7:2 6:1 ');
+        });
+        it('should compute loop.first and loop.last after filtering', function() {
+          equal(
+            '{% ' + block + ' i in [1, 2, 3, 4] if i % 2 == 0 %}' +
+            '[{{ loop.first }},{{ loop.last }}]{% ' + end + ' %}',
+            '[true,false][false,true]');
+        });
+        it('should compute loop.length after filtering', function() {
+          equal('{% ' + block + ' i in [1, 2, 3, 4] if i % 2 == 0 %}' +
+            '{{ loop.length }} {% ' + end + ' %}',
+          '2 2 ');
+        });
+        it('should run the else block when nothing passes the condition', function() {
+          equal(
+            '{% ' + block + ' i in [1, 2, 3] if i > 9 %}{{ i }}' +
+            '{% else %}empty{% ' + end + ' %}',
+            'empty');
+        });
+        it('should run the else block when filtering an empty sequence', function() {
+          equal(
+            '{% ' + block + ' i in arr if i > 9 %}{{ i }}' +
+            '{% else %}empty{% ' + end + ' %}',
+            { arr: [] },
+            'empty');
+        });
+        it('should filter destructured loops over arrays', function() {
+          equal(
+            '{% ' + block + ' x, y in points if x > 2 %}[{{ x }},{{ y }}]{% ' + end + ' %}',
+            { points: [[1, 2], [3, 4], [5, 6]] },
+            '[3,4][5,6]');
+        });
+        it('should filter key-value loops over objects', function() {
+          equal(
+            '{% ' + block + ' k, v in items if v > 1 %}' +
+            '({{ k }},{{ v }},{{ loop.index }},{{ loop.length }}){% ' + end + ' %}',
+            { items: { foo: 1, bar: 2, baz: 3 } },
+            '(bar,2,1,2)(baz,3,2,2)');
+        });
+        it('should filter key-value loops over Maps', function() {
+          if (typeof Map === 'undefined') {
+            this.skip();
+          } else {
+            equal(
+              '{% ' + block + ' k, v in map if v %}[{{ k }},{{ v }}]{% ' + end + ' %}',
+              { map: new Map([['a', 1], ['b', 0], ['c', 2]]) },
+              '[a,1][c,2]');
+          }
+        });
+        it('should keep inline-if iterables (in parentheses) working', function() {
+          equal(
+            '{% ' + block + ' x in (a if flag else b) %}{{ x }}{% ' + end + ' %}',
+            { flag: true, a: [9], b: [1, 2] },
+            '9');
+          equal(
+            '{% ' + block + ' x in (a if flag else b) %}{{ x }}{% ' + end + ' %}',
+            { flag: false, a: [9], b: [1, 2] },
+            '12');
+        });
+        it('should filter loops over strings', function() {
+          equal(
+            '{% ' + block + ' c in "abcABC" if c == c|upper and c != c|lower %}' +
+            '{{ c }}{% ' + end + ' %}',
+            'ABC');
+        });
+        it('should fail silently when filtering a loop over an undefined variable',
+          function() {
+            equal('{% ' + block + ' i in foo if i % 2 == 0 %}{{ i }}{% ' + end + ' %}',
+              '');
+          });
       });
     }
 
@@ -683,6 +786,58 @@
 
       finish(done);
     });
+
+    it('should support inline if conditions with async filters in the body',
+      function(done) {
+        // A plain "for" with an async filter in its body gets converted to
+        // an asyncEach; the filter condition must still narrow the loop and
+        // the loop variables must count only matching items.
+        render('{% for i in [1, 2, 3, 4] if i % 2 == 0 %}' +
+          '{{ i|double }}:{{ loop.index }}:{{ loop.length }} {% endfor %}',
+        {},
+        {
+          asyncFilters: {
+            double: function(x, cb) {
+              cb(null, x * 2);
+            }
+          }
+        },
+        function(err, res) {
+          expect(err).to.be(null);
+          expect(res).to.be('4:1:2 8:2:2 ');
+        });
+
+        render('{% asyncEach i in [1, 2, 3, 4] if i % 2 == 1 %}' +
+          '{{ i|double }}:{{ loop.index }} {% endeach %}',
+        {},
+        {
+          asyncFilters: {
+            double: function(x, cb) {
+              cb(null, x * 2);
+            }
+          }
+        },
+        function(err, res) {
+          expect(err).to.be(null);
+          expect(res).to.be('2:1 6:2 ');
+        });
+
+        render('{% asyncAll k, v in items if v > 1 %}{{ k }}:{{ v|double }}:{{ loop.length }} {% endall %}',
+        { items: { a: 1, b: 2, c: 3 } },
+        {
+          asyncFilters: {
+            double: function(x, cb) {
+              cb(null, x * 2);
+            }
+          }
+        },
+        function(err, res) {
+          expect(err).to.be(null);
+          expect(res).to.be('b:4:2 c:6:2 ');
+        });
+
+        finish(done);
+      });
 
     it('should compile basic arithmetic operators', function() {
       equal('{{ 3 + 4 - 5 * 6 / 10 }}', '4');

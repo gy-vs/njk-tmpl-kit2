@@ -191,7 +191,8 @@ function convertStatements(ast) {
           node.arr,
           node.name,
           node.body,
-          node.else_
+          node.else_,
+          node.cond
         );
       }
     }

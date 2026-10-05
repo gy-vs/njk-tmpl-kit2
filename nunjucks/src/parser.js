@@ -188,7 +188,19 @@ class Parser extends Obj {
         forTok.colno);
     }
 
-    node.arr = this.parseExpression();
+    // Parse the iterable without consuming a trailing inline "if":
+    // unlike expressions, a for tag can be followed by "if <cond>" to
+    // filter the sequence (like jinja2). An inline-if used as the
+    // iterable itself is still supported when wrapped in parentheses,
+    // e.g. {% for x in (a if flag else b) %}, because the parentheses
+    // hide the "if" from this check.
+    node.arr = this.parseOr();
+
+    node.cond = null;
+    if (this.skipSymbol('if')) {
+      node.cond = this.parseExpression();
+    }
+
     this.advanceAfterBlockEnd(forTok.value);
 
     node.body = this.parseUntilBlocks(endBlock, 'else');

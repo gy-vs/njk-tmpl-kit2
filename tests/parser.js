@@ -369,6 +369,46 @@
                 [nodes.TemplateData, 'empty']]]]]);
     });
 
+    it('should parse for loops with an inline if condition', function() {
+      isAST(parser.parse('{% for x in [1, 2] if x %}{{ x }}{% endfor %}'),
+        [nodes.Root,
+          [nodes.For,
+            [nodes.Array,
+              [nodes.Literal, 1],
+              [nodes.Literal, 2]],
+            [nodes.Symbol, 'x'],
+            [nodes.NodeList,
+              [nodes.Output,
+                [nodes.Symbol, 'x']]],
+            null,
+            [nodes.Symbol, 'x']]]);
+    });
+
+    it('should parse key/value for loops with an inline if condition', function() {
+      isAST(parser.parse('{% for k, v in items if v %}{{ k }}{% endfor %}'),
+        [nodes.Root,
+          [nodes.For,
+            [nodes.Symbol, 'items'],
+            [nodes.Array,
+              [nodes.Symbol, 'k'],
+              [nodes.Symbol, 'v']],
+            [nodes.NodeList,
+              [nodes.Output,
+                [nodes.Symbol, 'k']]],
+            null,
+            [nodes.Symbol, 'v']]]);
+    });
+
+    it('should keep an inline-if as the iterable when parenthesized',
+      function() {
+        const ast = parser.parse('{% for x in (a if flag else b) %}{{ x }}{% endfor %}');
+        const loop = ast.children[0];
+        expect(loop.typename).to.be('For');
+        expect(loop.arr.typename).to.be('Group');
+        expect(loop.arr.children[0].typename).to.be('InlineIf');
+        expect(loop.cond).to.be(null);
+      });
+
     it('should parse filters', function() {
       isAST(parser.parse('{{ foo | bar }}'),
         [nodes.Root,

@@ -647,6 +647,43 @@ class Compiler extends Obj {
     });
   }
 
+  // Compile the predicate of a for tag's inline "if" clause and return
+  // a runtime.filterIterable(...) expression which narrows the loop to
+  // the values that pass the condition. The loop variable names are
+  // bound in `frame` first, because the condition may reference them.
+  _compileLoopFilter(node, frame, arr) {
+    // The predicate is compiled into a temporary buffer because
+    // compiling an expression can emit code (it doesn't for plain
+    // conditions, but this keeps it isolated from the call site).
+    const savedBuf = this.codebuf;
+    const exprBuf = [];
+    this.codebuf = exprBuf;
+
+    let argNames;
+    if (node.name instanceof nodes.Array) {
+      argNames = node.name.children.map((child) => {
+        const id = this._tmpid();
+        frame.set(child.value, id);
+        return id;
+      });
+    } else {
+      const id = this._tmpid();
+      frame.set(node.name.value, id);
+      argNames = [id];
+    }
+
+    this._emit('(function(' + argNames.join(',') + ') { return (');
+    this._compileExpression(node.cond, frame);
+    this._emit('); })');
+
+    const predicate = exprBuf.join('');
+    this.codebuf = savedBuf;
+
+    const numNames = (node.name instanceof nodes.Array) ?
+      node.name.children.length : 1;
+    return `runtime.filterIterable(${arr}, ${numNames}, ${predicate})`;
+  }
+
   compileFor(node, frame) {
     // Some of this code is ugly, but it keeps the generated code
     // as fast as possible. ForAsync also shares some of this, but
@@ -665,6 +702,10 @@ class Compiler extends Obj {
 
     this._emit(`if(${arr}) {`);
     this._emitLine(arr + ' = runtime.fromIterator(' + arr + ');');
+
+    if (node.cond) {
+      this._emitLine(`${arr} = ` + this._compileLoopFilter(node, frame, arr) + ';');
+    }
 
     // If multiple names are passed, we need to bind them
     // appropriately
@@ -760,6 +801,10 @@ class Compiler extends Obj {
     this._emit('var ' + arr + ' = runtime.fromIterator(');
     this._compileExpression(node.arr, frame);
     this._emitLine(');');
+
+    if (node.cond) {
+      this._emitLine(arr + ' = ' + this._compileLoopFilter(node, frame, arr) + ';');
+    }
 
     if (node.name instanceof nodes.Array) {
       const arrayLen = node.name.children.length;

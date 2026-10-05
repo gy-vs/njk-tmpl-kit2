@@ -357,6 +357,49 @@ function fromIterator(arr) {
   }
 }
 
+// Implements the inline "if" condition of a for tag. The predicate is
+// invoked with the same values the loop variables will be bound to:
+// a single value when iterating over a list, or the key and value when
+// iterating over pairs. Objects (which are iterated as key/value pairs)
+// are turned into [key, value] arrays so the loop metadata is computed
+// over the filtered results, exactly like jinja2.
+function filterIterable(arr, numNames, predicate) {
+  if (lib.isArray(arr)) {
+    if (numNames === 1) {
+      return arr.filter(predicate);
+    }
+    return arr.filter(function(item) {
+      return predicate(item[0], item[1]);
+    });
+  }
+
+  if (lib.isString(arr)) {
+    // Strings are iterated character by character
+    const chars = arrayFrom(arr);
+    if (numNames === 1) {
+      return chars.filter(predicate);
+    }
+    return chars
+      .map(function(ch, idx) { return [idx, ch]; })
+      .filter(function(pair) { return predicate(pair[0], pair[1]); });
+  }
+
+  const pairs = [];
+  const filteredKeys = [];
+  const keys = lib.keys(arr || {});
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (numNames === 1) {
+      if (predicate(k)) {
+        filteredKeys.push(k);
+      }
+    } else if (predicate(k, arr[k])) {
+      pairs.push([k, arr[k]]);
+    }
+  }
+  return numNames === 1 ? filteredKeys : pairs;
+}
+
 module.exports = {
   Frame: Frame,
   makeMacro: makeMacro,
@@ -376,5 +419,6 @@ module.exports = {
   asyncEach: asyncEach,
   asyncAll: asyncAll,
   inOperator: lib.inOperator,
-  fromIterator: fromIterator
+  fromIterator: fromIterator,
+  filterIterable: filterIterable
 };
