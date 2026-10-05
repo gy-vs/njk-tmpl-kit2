@@ -675,6 +675,27 @@ class Compiler extends Obj {
       // body of the loop is duplicated for each condition, but
       // we are optimizing for speed over size.
       this._emitLine(`if(runtime.isArray(${arr})) {`);
+
+      if (node.cond) {
+        // Pre-filter the array so all the loop.* metadata is
+        // calculated over the matching elements only.
+        const tids = node.name.children.map((child) => {
+          const tid = this._tmpid();
+          frame.set(child.value, tid);
+          return tid;
+        });
+
+        this._emit(`${arr} = ${arr}.filter(function(item) {`);
+        node.name.children.forEach((child, u) => {
+          const tid = tids[u];
+          this._emitLine(`var ${tid} = item[${u}];`);
+          this._emitLine(`frame.set("${child.value}", ${tid});`);
+        });
+        this._emit('return ');
+        this._compileExpression(node.cond, frame);
+        this._emitLine('; });');
+      }
+
       this._emitLine(`var ${len} = ${arr}.length;`);
       this._emitLine(`for(${i}=0; ${i} < ${arr}.length; ${i}++) {`);
 
@@ -682,7 +703,7 @@ class Compiler extends Obj {
       node.name.children.forEach((child, u) => {
         var tid = this._tmpid();
         this._emitLine(`var ${tid} = ${arr}[${i}][${u}];`);
-        this._emitLine(`frame.set("${child}", ${arr}[${i}][${u}]);`);
+        this._emitLine(`frame.set("${child.value}", ${arr}[${i}][${u}]);`);
         frame.set(node.name.children[u].value, tid);
       });
 
@@ -700,10 +721,26 @@ class Compiler extends Obj {
       frame.set(key.value, k);
       frame.set(val.value, v);
 
-      this._emitLine(`${i} = -1;`);
-      this._emitLine(`var ${len} = runtime.keys(${arr}).length;`);
-      this._emitLine(`for(var ${k} in ${arr}) {`);
-      this._emitLine(`${i}++;`);
+      if (node.cond) {
+        // Filter the keys first so all the loop.* metadata only
+        // counts matching entries.
+        const keys = this._tmpid();
+        this._emitLine(`var ${keys} = runtime.keys(${arr}).filter(function(${k}) {`);
+        this._emitLine(`var ${v} = ${arr}[${k}];`);
+        this._emitLine(`frame.set("${key.value}", ${k});`);
+        this._emitLine(`frame.set("${val.value}", ${v});`);
+        this._emit('return ');
+        this._compileExpression(node.cond, frame);
+        this._emitLine('; });');
+        this._emitLine(`var ${len} = ${keys}.length;`);
+        this._emitLine(`for(${i}=0; ${i} < ${len}; ${i}++) {`);
+        this._emitLine(`var ${k} = ${keys}[${i}];`);
+      } else {
+        this._emitLine(`${i} = -1;`);
+        this._emitLine(`var ${len} = runtime.keys(${arr}).length;`);
+        this._emitLine(`for(var ${k} in ${arr}) {`);
+        this._emitLine(`${i}++;`);
+      }
       this._emitLine(`var ${v} = ${arr}[${k}];`);
       this._emitLine(`frame.set("${key.value}", ${k});`);
       this._emitLine(`frame.set("${val.value}", ${v});`);
@@ -719,6 +756,20 @@ class Compiler extends Obj {
       // Generate a typical array iteration
       const v = this._tmpid();
       frame.set(node.name.value, v);
+
+      if (node.cond) {
+        // Pre-filter the iterable so all the loop.* metadata is
+        // calculated over the matching elements only. Iterators
+        // and array-likes (strings, Sets/Maps are already arrays
+        // thanks to fromIterator) are normalized first.
+        this._emitLine(
+          `${arr} = (runtime.isArray(${arr}) ? ${arr} : [].slice.call(${arr}))` +
+          `.filter(function(${v}) {`);
+        this._emitLine(`frame.set("${node.name.value}", ${v});`);
+        this._emit('return ');
+        this._compileExpression(node.cond, frame);
+        this._emitLine('; });');
+      }
 
       this._emitLine(`var ${len} = ${arr}.length;`);
       this._emitLine(`for(var ${i}=0; ${i} < ${arr}.length; ${i}++) {`);
@@ -760,6 +811,41 @@ class Compiler extends Obj {
     this._emit('var ' + arr + ' = runtime.fromIterator(');
     this._compileExpression(node.arr, frame);
     this._emitLine(');');
+
+    if (node.cond) {
+      // Pre-filter the iterable synchronously (async filters in
+      // the condition are not supported) so the loop.* metadata
+      // is calculated over the matching elements only.
+      if (node.name instanceof nodes.Array) {
+        node.name.children.forEach((name) => {
+          frame.set(name.value, name.value);
+        });
+
+        // Plain objects are normalized into arrays of [key, value]
+        // pairs first; iterators/Maps are already arrays thanks to
+        // fromIterator.
+        this._emitLine(
+          `${arr} = ${arr} ? (runtime.isArray(${arr}) ? ${arr} : ` +
+          `runtime.keys(${arr}).map(function(key) { return [key, ${arr}[key]]; })) : [];`);
+        this._emitLine(`${arr} = ${arr}.filter(function(item) {`);
+        node.name.children.forEach((name, u) => {
+          this._emitLine(`var ${name.value} = item[${u}];`);
+          this._emitLine(`frame.set("${name.value}", ${name.value});`);
+        });
+      } else {
+        const id = node.name.value;
+        frame.set(id, id);
+
+        this._emitLine(
+          `${arr} = ${arr} ? (runtime.isArray(${arr}) ? ${arr} : [].slice.call(${arr})) : [];`);
+        this._emitLine(`${arr} = ${arr}.filter(function(${id}) {`);
+        this._emitLine('frame.set("' + id + '", ' + id + ');');
+      }
+
+      this._emit('return ');
+      this._compileExpression(node.cond, frame);
+      this._emitLine('; });');
+    }
 
     if (node.name instanceof nodes.Array) {
       const arrayLen = node.name.children.length;

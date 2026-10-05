@@ -188,7 +188,17 @@ class Parser extends Obj {
         forTok.colno);
     }
 
-    node.arr = this.parseExpression();
+    node.arr = this.parseOr();
+
+    // An inline `if` filter, as in `{% for x in xs if x > 0 %}`.
+    // This is parsed separately from a regular expression because a
+    // top-level inline conditional (`a if b`) would consume the `if`
+    // keyword; parenthesized expressions such as
+    // `{% for x in (a if flag else b) %}` keep their usual meaning.
+    if (this.skipSymbol('if')) {
+      node.cond = this.parseExpression();
+    }
+
     this.advanceAfterBlockEnd(forTok.value);
 
     node.body = this.parseUntilBlocks(endBlock, 'else');

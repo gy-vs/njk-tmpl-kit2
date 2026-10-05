@@ -369,6 +369,41 @@
                 [nodes.TemplateData, 'empty']]]]]);
     });
 
+    it('should parse for loops with an inline if filter', function() {
+      isAST(parser.parse('{% for x in [1, 2] if x > 0 %}{{ x }}{% endfor %}'),
+        [nodes.Root,
+          [nodes.For,
+            [nodes.Array,
+              [nodes.Literal, 1],
+              [nodes.Literal, 2]],
+            [nodes.Symbol, 'x'],
+            [nodes.NodeList,
+              [nodes.Output,
+                [nodes.Symbol, 'x']]],
+            null,
+            [nodes.Compare,
+              [nodes.Symbol, 'x'],
+              [
+                [nodes.CompareOperand,
+                  [nodes.Literal, 0],
+                  '>']
+              ]]]]);
+
+      // A parenthesized inline-if expression is still the iterable
+      isAST(parser.parse('{% for x in (a if flag else b) %}{{ x }}{% endfor %}'),
+        [nodes.Root,
+          [nodes.For,
+            [nodes.Group,
+              [nodes.InlineIf,
+                [nodes.Symbol, 'flag'],
+                [nodes.Symbol, 'a'],
+                [nodes.Symbol, 'b']]],
+            [nodes.Symbol, 'x'],
+            [nodes.NodeList,
+              [nodes.Output,
+                [nodes.Symbol, 'x']]]]]);
+    });
+
     it('should parse filters', function() {
       isAST(parser.parse('{{ foo | bar }}'),
         [nodes.Root,

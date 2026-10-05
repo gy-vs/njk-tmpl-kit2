@@ -380,6 +380,137 @@
         it('should support loop.length', function() {
           equal('{% ' + block + ' i in [7,3,6] %}{{ loop.length }}{% ' + end + ' %}', '333');
         });
+        it('should filter loop iterations with an inline if', function() {
+          equal(
+            '{% ' + block + ' i in [1,2,3,4] if i % 2 == 0 %}' +
+            '{{ loop.index }}:{{ i }} {% ' + end + ' %}',
+            '1:2 2:4 ');
+        });
+        it('should calculate loop.index over filtered iterations', function() {
+          equal(
+            '{% ' + block + ' i in [7,3,6] if i != 3 %}{{ loop.index }}{% ' + end + ' %}',
+            '12');
+        });
+        it('should calculate loop.index0 over filtered iterations', function() {
+          equal(
+            '{% ' + block + ' i in [7,3,6] if i != 3 %}{{ loop.index0 }}{% ' + end + ' %}',
+            '01');
+        });
+        it('should calculate loop.revindex over filtered iterations', function() {
+          equal(
+            '{% ' + block + ' i in [7,3,6] if i != 3 %}{{ loop.revindex }}{% ' + end + ' %}',
+            '21');
+        });
+        it('should calculate loop.revindex0 over filtered iterations', function() {
+          equal(
+            '{% ' + block + ' i in [7,3,6] if i != 3 %}{{ loop.revindex0 }}{% ' + end + ' %}',
+            '10');
+        });
+        it('should calculate loop.first over filtered iterations', function() {
+          equal(
+            '{% ' + block + ' i in [7,3,6] if i != 7 %}' +
+            '{% if loop.first %}{{ i }}{% endif %}' +
+            '{% ' + end + ' %}',
+            '3');
+        });
+        it('should calculate loop.last over filtered iterations', function() {
+          equal(
+            '{% ' + block + ' i in [7,3,6] if i != 6 %}' +
+            '{% if loop.last %}{{ i }}{% endif %}' +
+            '{% ' + end + ' %}',
+            '3');
+        });
+        it('should calculate loop.length over filtered iterations', function() {
+          equal(
+            '{% ' + block + ' i in [7,3,6] if i != 3 %}{{ loop.length }}{% ' + end + ' %}',
+            '22');
+        });
+        it('should run the else block when no element passes the filter', function() {
+          equal(
+            '{% ' + block + ' i in [1,2,3] if i > 10 %}' +
+            '{{ i }}{% else %}none{% ' + end + ' %}',
+            'none');
+        });
+        it('should run the else block when filtering an empty array', function() {
+          equal(
+            '{% ' + block + ' i in arr if i > 10 %}' +
+            '{{ i }}{% else %}none{% ' + end + ' %}',
+            { arr: [] },
+            'none');
+        });
+        it('should support filters referencing context variables', function() {
+          equal(
+            '{% ' + block + ' u in users if u.active and u.role != hidden %}' +
+            '{{ u.name }}{% ' + end + ' %}',
+            {
+              hidden: 'admin',
+              users: [
+                { name: 'a', active: true, role: 'user' },
+                { name: 'b', active: false, role: 'user' },
+                { name: 'c', active: true, role: 'admin' }
+              ]
+            },
+            'a');
+        });
+        it('should support inline filters with destructured arrays', function() {
+          equal(
+            '{% ' + block + ' a, b in arr if b > 1 %}' +
+            '{{ a }},{{ b }}.{% ' + end + ' %}',
+            { arr: [['x', 1], ['y', 2], ['z', 3]] },
+            'y,2.z,3.');
+        });
+        it('should support inline filters over object key-values', function() {
+          equal(
+            '{% ' + block + ' k, v in items if v > 0 %}' +
+            '({{ k }},{{ v }}){% ' + end + ' %}',
+            {
+              items: {
+                foo: 0,
+                bar: 2,
+                baz: 3
+              }
+            },
+            '(bar,2)(baz,3)');
+        });
+        it('should calculate loop.* over filtered object key-values', function() {
+          equal(
+            '{% ' + block + ' k, v in items if v > 0 %}' +
+            '{{ loop.index }}:{{ loop.length }}{% ' + end + ' %}',
+            {
+              items: {
+                foo: 0,
+                bar: 2,
+                baz: 3
+              }
+            },
+            '1:22:2');
+        });
+        it('should fail silently when filtering over an undefined variable', function() {
+          equal('{% ' + block + ' i in foo if i > 0 %}{{ i }}{% ' + end + ' %}', '');
+        });
+        it('should fail silently when filtering over a null variable', function() {
+          equal(
+            '{% ' + block + ' i in foo if i > 0 %}{{ i }}{% ' + end + ' %}',
+            { foo: null },
+            '');
+        });
+        it('should keep a parenthesized inline conditional as the iterable', function() {
+          equal(
+            '{% ' + block + ' x in (a if flag else b) %}{{ x }}{% ' + end + ' %}',
+            { flag: true, a: [1], b: [2] },
+            '1');
+          equal(
+            '{% ' + block + ' x in (a if flag else b) %}{{ x }}{% ' + end + ' %}',
+            { flag: false, a: [1], b: [2] },
+            '2');
+        });
+        it('should combine a parenthesized inline conditional iterable with a filter',
+          function() {
+            equal(
+              '{% ' + block + ' x in (a if flag else b) if x > 1 %}{{ x }}{% ' + end + ' %}',
+              { flag: true, a: [1, 2], b: [2, 3] },
+              '2');
+          });
         it('should fail silently when looping over an undefined variable', function() {
           equal('{% ' + block + ' i in foo %}{{ i }}{% ' + end + ' %}', '');
         });
@@ -501,6 +632,10 @@
             equal('{% ' + block + ' i in set %}{{ i }}{% else %}empty{% ' + end + ' %}',
               { set: new Set() },
               'empty');
+
+            equal('{% ' + block + ' i in set if i % 2 == 0 %}{{ i }}{% ' + end + ' %}',
+              { set: new Set([1, 2, 3, 4, 5]) },
+              '24');
           }
         });
         /* global Map */
@@ -519,6 +654,11 @@
             equal('{% ' + block + ' k, v in map %}[{{ k }},{{ v }}]{% else %}empty{% ' + end + ' %}',
               { map: new Map() },
               'empty');
+
+            equal(
+              '{% ' + block + ' k, v in map if v > 2 %}[{{ k }},{{ v }}]{% ' + end + ' %}',
+              { map: new Map([[1, 2], [3, 4], [5, 6]]) },
+              '[3,4][5,6]');
           }
         });
       });
@@ -584,6 +724,16 @@
           });
 
         render('{% for t in [tmpl, tmpl] %}{{ t | getContents }}*{% endfor %}',
+          {
+            tmpl: 'tests/templates/for-async-content.njk'
+          },
+          opts,
+          function(err, res) {
+            expect(res).to.be('somecontenthere*somecontenthere*');
+          });
+
+        render('{% for t in [tmpl, "", tmpl] if t %}' +
+          '{{ t | getContents }}*{% endfor %}',
           {
             tmpl: 'tests/templates/for-async-content.njk'
           },
